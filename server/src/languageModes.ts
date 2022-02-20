@@ -3,28 +3,51 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { getCSSLanguageService } from 'vscode-css-languageservice';
 import {
 	CompletionList,
+	CompletionItem,
+	Hover,
+	SignatureHelp,
+	Definition,
+	SymbolInformation,
+	Location,
 	Diagnostic,
 	getLanguageService as getHTMLLanguageService,
 	Position,
 	Range,
+	DocumentContext
+	
 } from 'vscode-html-languageservice';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { getCSSMode } from './modes/cssMode';
+import { getJavascriptMode } from './modes/javascriptMode';
 import { getDocumentRegions, HTMLDocumentRegions } from './embeddedSupport';
-import { getHTMLMode } from './modes/htmlMode';
 import { getLanguageModelCache, LanguageModelCache } from './languageModelCache';
+import { WorkspaceFolder } from 'vscode-languageserver';
 
 export * from 'vscode-html-languageservice';
-
 export interface LanguageMode {
 	getId(): string;
-	doValidation?: (document: TextDocument) => Diagnostic[];
-	doComplete?: (document: TextDocument, position: Position) => CompletionList;
+	doValidation?: (document: TextDocument, settings?: Settings) => Promise<Diagnostic[]>;
+	doComplete?: (document: TextDocument, position: Position, documentContext: DocumentContext, settings?: Settings) => Promise<CompletionList>;
+	doResolve?: (document: TextDocument, item: CompletionItem) => Promise<CompletionItem>;
+	doHover?: (document: TextDocument, position: Position, settings?: Settings) => Promise<Hover | null>;
+	doSignatureHelp?: (document: TextDocument, position: Position) => Promise<SignatureHelp | null>;
+	findDocumentSymbols?: (document: TextDocument) => Promise<SymbolInformation[]>;
+	findDefinition?: (document: TextDocument, position: Position) => Promise<Definition | null>;
+	findReferences?: (document: TextDocument, position: Position) => Promise<Location[]>;
 	onDocumentRemoved(document: TextDocument): void;
 	dispose(): void;
+}
+
+export interface Settings {
+	css?: any;
+	html?: any;
+	javascript?: any;
+}
+
+export interface Workspace {
+	readonly settings: Settings;
+	readonly folders: WorkspaceFolder[];
 }
 
 export interface LanguageModes {
@@ -44,7 +67,6 @@ export interface LanguageModeRange extends Range {
 
 export function getLanguageModes(): LanguageModes {
 	const htmlLanguageService = getHTMLLanguageService();
-	const cssLanguageService = getCSSLanguageService();
 
 	const documentRegions = getLanguageModelCache<HTMLDocumentRegions>(10, 60, document =>
 		getDocumentRegions(htmlLanguageService, document)
@@ -54,8 +76,7 @@ export function getLanguageModes(): LanguageModes {
 	modelCaches.push(documentRegions);
 
 	let modes = Object.create(null);
-	modes['html'] = getHTMLMode(htmlLanguageService);
-	modes['css'] = getCSSMode(cssLanguageService, documentRegions);
+	modes['javascript'] = getJavascriptMode(documentRegions);
 
 	return {
 		getModeAtPosition(
