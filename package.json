@@ -22,8 +22,7 @@
 		"onLanguage:html"
 	],
 	"main": "./client/out/extension",
-	"contributes": {
-	},
+	"contributes": {},
 	"scripts": {
 		"vscode:prepublish": "cd client && npm install && cd .. && npm run compile",
 		"compile": "tsc -b",

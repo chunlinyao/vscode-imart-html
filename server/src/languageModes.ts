@@ -65,7 +65,7 @@ export interface LanguageModeRange extends Range {
 	attributeValue?: boolean;
 }
 
-export function getLanguageModes(): LanguageModes {
+export function getLanguageModes(workspace: Workspace): LanguageModes {
 	const htmlLanguageService = getHTMLLanguageService();
 
 	const documentRegions = getLanguageModelCache<HTMLDocumentRegions>(10, 60, document =>
@@ -76,7 +76,7 @@ export function getLanguageModes(): LanguageModes {
 	modelCaches.push(documentRegions);
 
 	let modes = Object.create(null);
-	modes['javascript'] = getJavascriptMode(documentRegions);
+	modes['javascript'] = getJavascriptMode(documentRegions, workspace);
 
 	return {
 		getModeAtPosition(

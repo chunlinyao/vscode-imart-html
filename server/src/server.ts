@@ -10,10 +10,12 @@ import {
 	InitializeParams,
 	ProposedFeatures,
 	TextDocuments,
-	TextDocumentSyncKind
+	TextDocumentSyncKind,
+	WorkspaceFolder
 } from 'vscode-languageserver';
 import { getLanguageModes, LanguageModes } from './languageModes';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { URI } from 'vscode-uri';
 
 // Create a connection for the server. The connection uses Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -23,10 +25,30 @@ const connection = createConnection(ProposedFeatures.all);
 // supports full document sync only
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
+let workspaceFolders: WorkspaceFolder[] = [];
 let languageModes: LanguageModes;
+let clientSnippetSupport = false;
+let dynamicFormatterRegistration = false;
+let scopedSettingsSupport = false;
+let workspaceFoldersSupport = false;
+let foldingRangeLimit = Number.MAX_VALUE;
 
 connection.onInitialize((_params: InitializeParams) => {
-	languageModes = getLanguageModes();
+	const initializationOptions = _params.initializationOptions;
+
+		workspaceFolders = (<any>_params).workspaceFolders;
+		if (!Array.isArray(workspaceFolders)) {
+			workspaceFolders = [];
+			if (_params.rootPath) {
+				workspaceFolders.push({ name: '', uri: URI.file(_params.rootPath).toString() });
+			}
+		}
+
+		const workspace = {
+			get settings() { return {javascript: true, css: false, html: false}; },
+			get folders() { return workspaceFolders; }
+		};
+	languageModes = getLanguageModes(workspace);
 
 	documents.onDidClose(e => {
 		languageModes.onDocumentRemoved(e.document);
@@ -35,15 +57,43 @@ connection.onInitialize((_params: InitializeParams) => {
 		languageModes.dispose();
 	});
 
-	return {
-		capabilities: {
-			textDocumentSync: TextDocumentSyncKind.Full,
-			// Tell the client that the server supports code completion
-			completionProvider: {
-				resolveProvider: false
+	function getClientCapability<T>(name: string, def: T) {
+		const keys = name.split('.');
+		let c: any = _params.capabilities;
+		for (let i = 0; c && i < keys.length; i++) {
+			// eslint-disable-next-line no-prototype-builtins
+			if (!c.hasOwnProperty(keys[i])) {
+				return def;
 			}
+			c = c[keys[i]];
 		}
-	};
+		return c;
+	}
+
+	clientSnippetSupport = getClientCapability('textDocument.completion.completionItem.snippetSupport', false);
+		dynamicFormatterRegistration = getClientCapability('textDocument.rangeFormatting.dynamicRegistration', false) && (typeof initializationOptions?.provideFormatter !== 'boolean');
+		scopedSettingsSupport = getClientCapability('workspace.configuration', false);
+		workspaceFoldersSupport = getClientCapability('workspace.workspaceFolders', false);
+		foldingRangeLimit = getClientCapability('textDocument.foldingRange.rangeLimit', Number.MAX_VALUE);
+		const capabilities: ServerCapabilities = {
+			textDocumentSync: TextDocumentSyncKind.Incremental,
+			completionProvider: clientSnippetSupport ? { resolveProvider: true, triggerCharacters: ['.', ':', '<', '"', '=', '/'] } : undefined,
+			hoverProvider: true,
+			documentHighlightProvider: true,
+			documentRangeFormattingProvider: params.initializationOptions?.provideFormatter === true,
+			documentFormattingProvider: params.initializationOptions?.provideFormatter === true,
+			documentLinkProvider: { resolveProvider: false },
+			documentSymbolProvider: true,
+			definitionProvider: true,
+			signatureHelpProvider: { triggerCharacters: ['('] },
+			referencesProvider: true,
+			colorProvider: {},
+			foldingRangeProvider: true,
+			selectionRangeProvider: true,
+			renameProvider: true,
+			linkedEditingRangeProvider: true
+		};
+		return { capabilities };
 });
 
 connection.onDidChangeConfiguration(_change => {
