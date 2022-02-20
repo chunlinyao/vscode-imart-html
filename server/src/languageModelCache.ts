@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { TextDocument } from 'vscode-languageserver-textdocument';
+import { TextDocument } from 'vscode-html-languageservice';
 
 export interface LanguageModelCache<T> {
 	get(document: TextDocument): T;
@@ -12,7 +12,7 @@ export interface LanguageModelCache<T> {
 }
 
 export function getLanguageModelCache<T>(maxEntries: number, cleanupIntervalTimeInSec: number, parse: (document: TextDocument) => T): LanguageModelCache<T> {
-	let languageModels: { [uri: string]: { version: number, languageId: string, cTime: number, languageModel: T } } = {};
+	let languageModels: { [uri: string]: { version: number; languageId: string; cTime: number; languageModel: T } } = {};
 	let nModels = 0;
 
 	let cleanupInterval: NodeJS.Timer | undefined = undefined;

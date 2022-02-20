@@ -3,21 +3,25 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { HTMLDocumentRegions } from '../embeddedSupport';
 import { LanguageModelCache, getLanguageModelCache } from '../languageModelCache';
 import {
 	SymbolInformation, SymbolKind, CompletionItem, Location, SignatureHelp, SignatureInformation, ParameterInformation,
 	Definition, TextEdit, TextDocument, Diagnostic, DiagnosticSeverity, Range, CompletionItemKind, Hover,
 	DocumentHighlight, DocumentHighlightKind, CompletionList, Position, FormattingOptions, FoldingRange, FoldingRangeKind, SelectionRange,
-	LanguageMode, Workspace, DocumentContext
-} from '../languageModes';
-import { getWordAtText } from '../utils/strings';
+	LanguageMode, Settings, SemanticTokenData, Workspace, DocumentContext
+} from './languageModes';
+import { getWordAtText, isWhitespaceOnly, repeat } from '../utils/strings';
+import { HTMLDocumentRegions } from './embeddedSupport';
+
 import * as ts from 'typescript';
+import { getSemanticTokens, getSemanticTokenLegend } from './javascriptSemanticTokens';
+
+const JS_WORD_REGEX = /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g;
 
 function getLanguageServiceHost(scriptKind: ts.ScriptKind) {
 	const compilerOptions: ts.CompilerOptions = { allowNonTsExtensions: true, allowJs: true, lib: ['lib.es6.d.ts'], target: ts.ScriptTarget.Latest, moduleResolution: ts.ModuleResolutionKind.Classic, experimentalDecorators: false };
 
-	let currentTextDocument = TextDocument.create('init', 'javascript', 1, '');
+	const currentTextDocument = TextDocument.create('init', 'javascript', 1, '');
 	const jsLanguageService = import(/* webpackChunkName: "javascriptLibs" */ './javascriptLibs').then(libs => {
 		const host: ts.LanguageServiceHost = {
 			getCompilationSettings: () => compilerOptions,
@@ -65,20 +69,17 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind) {
 		}
 	};
 }
-const JS_WORD_REGEX = /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g;
 
 
-export function getJavascriptMode(
-	documentRegions: LanguageModelCache<HTMLDocumentRegions>,
-	workspace: Workspace
-): LanguageMode {
-	const jsDocuments = getLanguageModelCache<TextDocument>(10, 60, document => documentRegions.get(document).getEmbeddedDocument("javascript"));
+export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocumentRegions>, languageId: 'javascript' | 'typescript', workspace: Workspace): LanguageMode {
+	const jsDocuments = getLanguageModelCache<TextDocument>(10, 60, document => documentRegions.get(document).getEmbeddedDocument(languageId));
 
-	const host = getLanguageServiceHost(ts.ScriptKind.JS);
+	const host = getLanguageServiceHost(languageId === 'javascript' ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+	const globalSettings: Settings = {};
 
 	return {
 		getId() {
-			return 'javascript';
+			return languageId;
 		},
 		async doValidation(document: TextDocument, settings = workspace.settings): Promise<Diagnostic[]> {
 			host.getCompilationSettings()['experimentalDecorators'] = settings && settings.javascript && settings.javascript.implicitProjectConfig.experimentalDecorators;
@@ -90,7 +91,7 @@ export function getJavascriptMode(
 				return {
 					range: convertRange(jsDocument, diag),
 					severity: DiagnosticSeverity.Error,
-					source: "javascript",
+					source: languageId,
 					message: ts.flattenDiagnosticMessageText(diag.messageText, '\n')
 				};
 			});
@@ -115,7 +116,7 @@ export function getJavascriptMode(
 						kind: convertKind(entry.kind),
 						textEdit: TextEdit.replace(replaceRange, entry.name),
 						data: { // data used for resolving item details (see 'doResolve')
-							languageId: "javascript",
+							languageId,
 							uri: document.uri,
 							offset: offset
 						}
@@ -287,8 +288,82 @@ export function getJavascriptMode(
 			}
 			return [];
 		},
+		async getSelectionRange(document: TextDocument, position: Position): Promise<SelectionRange> {
+			const jsDocument = jsDocuments.get(document);
+			const jsLanguageService = await host.getLanguageService(jsDocument);
+			function convertSelectionRange(selectionRange: ts.SelectionRange): SelectionRange {
+				const parent = selectionRange.parent ? convertSelectionRange(selectionRange.parent) : undefined;
+				return SelectionRange.create(convertRange(jsDocument, selectionRange.textSpan), parent);
+			}
+			const range = jsLanguageService.getSmartSelectionRange(jsDocument.uri, jsDocument.offsetAt(position));
+			return convertSelectionRange(range);
+		},
+		async format(document: TextDocument, range: Range, formatParams: FormattingOptions, settings: Settings = globalSettings): Promise<TextEdit[]> {
+			const jsDocument = documentRegions.get(document).getEmbeddedDocument('javascript', true);
+			const jsLanguageService = await host.getLanguageService(jsDocument);
+
+			const formatterSettings = settings && settings.javascript && settings.javascript.format;
+
+			const initialIndentLevel = computeInitialIndent(document, range, formatParams);
+			const formatSettings = convertOptions(formatParams, formatterSettings, initialIndentLevel + 1);
+			const start = jsDocument.offsetAt(range.start);
+			let end = jsDocument.offsetAt(range.end);
+			let lastLineRange = null;
+			if (range.end.line > range.start.line && (range.end.character === 0 || isWhitespaceOnly(jsDocument.getText().substr(end - range.end.character, range.end.character)))) {
+				end -= range.end.character;
+				lastLineRange = Range.create(Position.create(range.end.line, 0), range.end);
+			}
+			const edits = jsLanguageService.getFormattingEditsForRange(jsDocument.uri, start, end, formatSettings);
+			if (edits) {
+				const result = [];
+				for (const edit of edits) {
+					if (edit.span.start >= start && edit.span.start + edit.span.length <= end) {
+						result.push({
+							range: convertRange(jsDocument, edit.span),
+							newText: edit.newText
+						});
+					}
+				}
+				if (lastLineRange) {
+					result.push({
+						range: lastLineRange,
+						newText: generateIndent(initialIndentLevel, formatParams)
+					});
+				}
+				return result;
+			}
+			return [];
+		},
+		async getFoldingRanges(document: TextDocument): Promise<FoldingRange[]> {
+			const jsDocument = jsDocuments.get(document);
+			const jsLanguageService = await host.getLanguageService(jsDocument);
+			const spans = jsLanguageService.getOutliningSpans(jsDocument.uri);
+			const ranges: FoldingRange[] = [];
+			for (const span of spans) {
+				const curr = convertRange(jsDocument, span.textSpan);
+				const startLine = curr.start.line;
+				const endLine = curr.end.line;
+				if (startLine < endLine) {
+					const foldingRange: FoldingRange = { startLine, endLine };
+					const match = document.getText(curr).match(/^\s*\/(?:(\/\s*#(?:end)?region\b)|(\*|\/))/);
+					if (match) {
+						foldingRange.kind = match[1] ? FoldingRangeKind.Region : FoldingRangeKind.Comment;
+					}
+					ranges.push(foldingRange);
+				}
+			}
+			return ranges;
+		},
 		onDocumentRemoved(document: TextDocument) {
 			jsDocuments.onDocumentRemoved(document);
+		},
+		async getSemanticTokens(document: TextDocument): Promise<SemanticTokenData[]> {
+			const jsDocument = jsDocuments.get(document);
+			const jsLanguageService = await host.getLanguageService(jsDocument);
+			return getSemanticTokens(jsLanguageService, jsDocument, jsDocument.uri);
+		},
+		getSemanticTokenLegend(): { types: string[]; modifiers: string[] } {
+			return getSemanticTokenLegend();
 		},
 		dispose() {
 			host.dispose();
@@ -296,6 +371,8 @@ export function getJavascriptMode(
 		}
 	};
 }
+
+
 
 
 function convertRange(document: TextDocument, span: { start: number | undefined; length: number | undefined }): Range {
@@ -428,5 +505,62 @@ function convertSymbolKind(kind: string): SymbolKind {
 		case Kind.typeParameter: return SymbolKind.TypeParameter;
 		case Kind.string: return SymbolKind.String;
 		default: return SymbolKind.Variable;
+	}
+}
+
+function convertOptions(options: FormattingOptions, formatSettings: any, initialIndentLevel: number): ts.FormatCodeSettings {
+	return {
+		convertTabsToSpaces: options.insertSpaces,
+		tabSize: options.tabSize,
+		indentSize: options.tabSize,
+		indentStyle: ts.IndentStyle.Smart,
+		newLineCharacter: '\n',
+		baseIndentSize: options.tabSize * initialIndentLevel,
+		insertSpaceAfterCommaDelimiter: Boolean(!formatSettings || formatSettings.insertSpaceAfterCommaDelimiter),
+		insertSpaceAfterConstructor: Boolean(formatSettings && formatSettings.insertSpaceAfterConstructor),
+		insertSpaceAfterSemicolonInForStatements: Boolean(!formatSettings || formatSettings.insertSpaceAfterSemicolonInForStatements),
+		insertSpaceBeforeAndAfterBinaryOperators: Boolean(!formatSettings || formatSettings.insertSpaceBeforeAndAfterBinaryOperators),
+		insertSpaceAfterKeywordsInControlFlowStatements: Boolean(!formatSettings || formatSettings.insertSpaceAfterKeywordsInControlFlowStatements),
+		insertSpaceAfterFunctionKeywordForAnonymousFunctions: Boolean(!formatSettings || formatSettings.insertSpaceAfterFunctionKeywordForAnonymousFunctions),
+		insertSpaceBeforeFunctionParenthesis: Boolean(formatSettings && formatSettings.insertSpaceBeforeFunctionParenthesis),
+		insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis),
+		insertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets),
+		insertSpaceAfterOpeningAndBeforeClosingNonemptyBraces: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingNonemptyBraces),
+		insertSpaceAfterOpeningAndBeforeClosingEmptyBraces: Boolean(!formatSettings || formatSettings.insertSpaceAfterOpeningAndBeforeClosingEmptyBraces),
+		insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces),
+		insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces),
+		insertSpaceAfterTypeAssertion: Boolean(formatSettings && formatSettings.insertSpaceAfterTypeAssertion),
+		placeOpenBraceOnNewLineForControlBlocks: Boolean(formatSettings && formatSettings.placeOpenBraceOnNewLineForFunctions),
+		placeOpenBraceOnNewLineForFunctions: Boolean(formatSettings && formatSettings.placeOpenBraceOnNewLineForControlBlocks),
+		semicolons: formatSettings?.semicolons
+	};
+}
+
+function computeInitialIndent(document: TextDocument, range: Range, options: FormattingOptions) {
+	const lineStart = document.offsetAt(Position.create(range.start.line, 0));
+	const content = document.getText();
+
+	let i = lineStart;
+	let nChars = 0;
+	const tabSize = options.tabSize || 4;
+	while (i < content.length) {
+		const ch = content.charAt(i);
+		if (ch === ' ') {
+			nChars++;
+		} else if (ch === '\t') {
+			nChars += tabSize;
+		} else {
+			break;
+		}
+		i++;
+	}
+	return Math.floor(nChars / tabSize);
+}
+
+function generateIndent(level: number, options: FormattingOptions) {
+	if (options.insertSpaces) {
+		return repeat(' ', level * options.tabSize);
+	} else {
+		return repeat('\t', level);
 	}
 }

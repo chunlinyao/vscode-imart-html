@@ -23,7 +23,7 @@ export function loadLibrary(name: string) {
 		}
 		try {
 			content = readFileSync(libPath).toString();
-		} catch (e) {
+		} catch (e: any) {
 			console.log(`Unable to load library ${name} at ${libPath}: ${e.message}`);
 			content = '';
 		}

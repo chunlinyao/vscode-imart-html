@@ -8,11 +8,11 @@ export function getWordAtText(text: string, offset: number, wordDefinition: RegE
 	while (lineStart > 0 && !isNewlineCharacter(text.charCodeAt(lineStart - 1))) {
 		lineStart--;
 	}
-	const offsetInLine = offset - lineStart;
-	const lineText = text.substr(lineStart);
+	let offsetInLine = offset - lineStart;
+	let lineText = text.substr(lineStart);
 
 	// make a copy of the regex as to not keep the state
-	const flags = wordDefinition.ignoreCase ? 'gi' : 'g';
+	let flags = wordDefinition.ignoreCase ? 'gi' : 'g';
 	wordDefinition = new RegExp(wordDefinition.source, flags);
 
 	let match = wordDefinition.exec(lineText);
@@ -41,7 +41,7 @@ export function startsWith(haystack: string, needle: string): boolean {
 }
 
 export function endsWith(haystack: string, needle: string): boolean {
-	const diff = haystack.length - needle.length;
+	let diff = haystack.length - needle.length;
 	if (diff > 0) {
 		return haystack.indexOf(needle, diff) === diff;
 	} else if (diff === 0) {
