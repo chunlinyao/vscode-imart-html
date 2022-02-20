@@ -18,14 +18,14 @@ import { getSemanticTokens, getSemanticTokenLegend } from './javascriptSemanticT
 
 const JS_WORD_REGEX = /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g;
 
-function getLanguageServiceHost(scriptKind: ts.ScriptKind) {
+function getLanguageServiceHost(scriptKind: ts.ScriptKind, workspace: Workspace) {
 	const compilerOptions: ts.CompilerOptions = { allowNonTsExtensions: true, allowJs: true, lib: ['lib.es6.d.ts'], target: ts.ScriptTarget.Latest, moduleResolution: ts.ModuleResolutionKind.Classic, experimentalDecorators: false };
 
-	const currentTextDocument = TextDocument.create('init', 'javascript', 1, '');
+	let currentTextDocument = TextDocument.create('init', 'javascript', 1, '');
 	const jsLanguageService = import(/* webpackChunkName: "javascriptLibs" */ './javascriptLibs').then(libs => {
 		const host: ts.LanguageServiceHost = {
 			getCompilationSettings: () => compilerOptions,
-			getScriptFileNames: () => [currentTextDocument.uri, 'jquery'],
+			getScriptFileNames: () => [currentTextDocument.uri, 'imartclient'],
 			getScriptKind: (fileName) => {
 				if (fileName === currentTextDocument.uri) {
 					return scriptKind;
@@ -58,7 +58,8 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind) {
 	});
 	return {
 		async getLanguageService(jsDocument: TextDocument): Promise<ts.LanguageService> {
-			currentTextDocument = jsDocument;
+			// bypass current document, which handled by vscode default html extensions
+			currentTextDocument = TextDocument.create(jsDocument.uri, "javascript", 1, '');
 			return jsLanguageService;
 		},
 		getCompilationSettings() {
@@ -74,7 +75,7 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind) {
 export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocumentRegions>, languageId: 'javascript' | 'typescript', workspace: Workspace): LanguageMode {
 	const jsDocuments = getLanguageModelCache<TextDocument>(10, 60, document => documentRegions.get(document).getEmbeddedDocument(languageId));
 
-	const host = getLanguageServiceHost(languageId === 'javascript' ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+	const host = getLanguageServiceHost(languageId === 'javascript' ? ts.ScriptKind.JS : ts.ScriptKind.TS, workspace);
 	const globalSettings: Settings = {};
 
 	return {
