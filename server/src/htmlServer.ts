@@ -25,7 +25,9 @@ import { fetchHTMLDataProviders } from './customData';
 import { getSelectionRanges } from './modes/selectionRanges';
 import { SemanticTokenProvider, newSemanticTokenProvider } from './modes/semanticTokens';
 import { FileSystemProvider, getFileSystemProvider } from './requests';
-
+namespace importedFileChange {
+	export const type: NotificationType<string> = new NotificationType("html/importedFileChanged");
+}
 namespace CustomDataChangedNotification {
 	export const type: NotificationType<string[]> = new NotificationType('html/customDataChanged');
 }
@@ -598,7 +600,17 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 			languageModes.updateDataProviders(dataProviders);
 		});
 	});
-
+	connection.onNotification(importedFileChange.type, fileUri => {
+		let mode = languageModes.getMode("javascript");
+		if (mode) {
+			mode.onImportedFileChanged!(fileUri);
+		} else {
+			mode = languageModes.getMode("typescript");
+			if (mode) {
+				mode.onImportedFileChanged!(fileUri);
+			}
+		}
+	});
 	// Listen on the connection
 	connection.listen();
 }

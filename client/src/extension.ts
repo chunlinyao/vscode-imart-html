@@ -4,16 +4,21 @@
  * ------------------------------------------------------------------------------------------ */
 
 import * as path from 'path';
-import { ExtensionContext, Uri, workspace } from 'vscode';
+import { ExtensionContext, Uri, workspace, FileSystemWatcher} from 'vscode';
 
 import {
 	LanguageClient,
 	LanguageClientOptions,
 	ServerOptions,
-	TransportKind
+	TransportKind,
+	NotificationType
 } from 'vscode-languageclient';
 
 let client: LanguageClient;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace importedFileChange {
+	export const type: NotificationType<string> = new NotificationType("html/importedFileChanged");
+}
 
 export async function activate(context: ExtensionContext) {
 	const root: Uri = workspace.workspaceFolders![0]!.uri;
@@ -55,11 +60,17 @@ export async function activate(context: ExtensionContext) {
 	// Create the language client and start the client.
 	client = new LanguageClient(
 		'languageServerImartHtml',
-		'Language Server Imart Html',
+		'Imart Html',
 		serverOptions,
 		clientOptions
 	);
 
+	const fileWatcher: FileSystemWatcher = workspace.createFileSystemWatcher("**/*.{ts,js}", true, false, true);
+	client.onReady().then(() => {
+		fileWatcher.onDidChange(e => {
+			client.sendNotification(importedFileChange.type, e.toString());
+		});
+	});
 	// Start the client. This will also launch the server
 	client.start();
 }

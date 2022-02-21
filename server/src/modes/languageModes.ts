@@ -78,6 +78,7 @@ export interface LanguageMode {
 	onDocumentRemoved(document: TextDocument): void;
 	getSemanticTokens?(document: TextDocument): Promise<SemanticTokenData[]>;
 	getSemanticTokenLegend?(): { types: string[]; modifiers: string[] };
+	onImportedFileChanged?(uri: string): void;
 	dispose(): void;
 }
 

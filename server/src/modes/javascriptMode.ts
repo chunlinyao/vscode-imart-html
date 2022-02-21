@@ -11,21 +11,28 @@ import {
 	LanguageMode, Settings, SemanticTokenData, Workspace, DocumentContext
 } from './languageModes';
 import { getWordAtText, isWhitespaceOnly, repeat } from '../utils/strings';
-import { HTMLDocumentRegions } from './embeddedSupport';
+import { HTMLDocumentRegions, HTMLDocument } from './embeddedSupport';
 
 import * as ts from 'typescript';
 import { getSemanticTokens, getSemanticTokenLegend } from './javascriptSemanticTokens';
+import { getImportedScripts } from './javascriptLibs';
+const importedScripts = new Map<string, [string[], string[]]>();
+const scriptDocuments = new Map<string, TextDocument>();
 
 const JS_WORD_REGEX = /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g;
+interface LanguageService extends ts.LanguageService {
+	getDocument?(uri: string): HTMLDocument;
+	scriptFileChanged?(uri: string): void;
+}
 
 function getLanguageServiceHost(scriptKind: ts.ScriptKind, workspace: Workspace) {
 	const compilerOptions: ts.CompilerOptions = { allowNonTsExtensions: true, allowJs: true, lib: ['lib.es6.d.ts'], target: ts.ScriptTarget.Latest, moduleResolution: ts.ModuleResolutionKind.Classic, experimentalDecorators: false };
 
-	let currentTextDocument = TextDocument.create('init', 'javascript', 1, '');
+	let currentTextDocument = TextDocument.create('init', 'javascript', 1, '') as HTMLDocument;
 	const jsLanguageService = import(/* webpackChunkName: "javascriptLibs" */ './javascriptLibs').then(libs => {
 		const host: ts.LanguageServiceHost = {
 			getCompilationSettings: () => compilerOptions,
-			getScriptFileNames: () => [currentTextDocument.uri, 'imartclient'],
+			getScriptFileNames: () => getImportedScripts(currentTextDocument, workspace),
 			getScriptKind: (fileName) => {
 				if (fileName === currentTextDocument.uri) {
 					return scriptKind;
@@ -41,7 +48,7 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind, workspace: Workspace)
 			getScriptSnapshot: (fileName: string) => {
 				let text = '';
 				if (fileName === currentTextDocument.uri) {
-					text = currentTextDocument.getText();
+					text = currentTextDocument.getText(); 
 				} else {
 					text = libs.loadLibrary(fileName);
 				}
@@ -51,19 +58,37 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind, workspace: Workspace)
 					getChangeRange: () => undefined
 				};
 			},
+			
 			getCurrentDirectory: () => '',
 			getDefaultLibFileName: (_options: ts.CompilerOptions) => 'es6'
 		};
-		return ts.createLanguageService(host);
+		const languageService: LanguageService = ts.createLanguageService(host);
+		languageService.getDocument = (uri: string): HTMLDocument => {
+			if (uri === currentTextDocument.uri) {
+				return currentTextDocument;
+			} else {
+				const text = libs.loadLibrary(uri);
+				return TextDocument.create(uri, 'javascript', 1, text) as HTMLDocument;
+			}
+		};
+		languageService.scriptFileChanged = libs.scriptFileChanged;
+		return languageService;
 	});
 	return {
-		async getLanguageService(jsDocument: TextDocument): Promise<ts.LanguageService> {
+		async getLanguageService(jsDocument: HTMLDocument): Promise<LanguageService> {
 			// bypass current document, which handled by vscode default html extensions
-			currentTextDocument = TextDocument.create(jsDocument.uri, "javascript", 1, '');
+			// currentTextDocument = TextDocument.create(jsDocument.uri, "javascript", 1, '') as HTMLDocument;
+			// currentTextDocument.importedScripts = jsDocument.importedScripts;
+			currentTextDocument = jsDocument;
 			return jsLanguageService;
 		},
 		getCompilationSettings() {
 			return compilerOptions;
+		},
+		async scriptFileChanged(uri: string) {
+			await jsLanguageService.then(s => {
+				s.scriptFileChanged!(uri);
+			});
 		},
 		dispose() {
 			jsLanguageService.then(s => s.dispose());
@@ -73,7 +98,7 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind, workspace: Workspace)
 
 
 export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocumentRegions>, languageId: 'javascript' | 'typescript', workspace: Workspace): LanguageMode {
-	const jsDocuments = getLanguageModelCache<TextDocument>(10, 60, document => documentRegions.get(document).getEmbeddedDocument(languageId));
+	const jsDocuments = getLanguageModelCache<HTMLDocument>(10, 60, document => documentRegions.get(document).getEmbeddedDocument(languageId));
 
 	const host = getLanguageServiceHost(languageId === 'javascript' ? ts.ScriptKind.JS : ts.ScriptKind.TS, workspace);
 	const globalSettings: Settings = {};
@@ -99,7 +124,9 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 		},
 		async doComplete(document: TextDocument, position: Position, _documentContext: DocumentContext): Promise<CompletionList> {
 			const jsDocument = jsDocuments.get(document);
-			const jsLanguageService = await host.getLanguageService(jsDocument);
+			const dummyDoc = TextDocument.create(jsDocument.uri, 'javascript', 1, '') as HTMLDocument;
+			dummyDoc.importedScripts = jsDocument.importedScripts;
+			const jsLanguageService = await host.getLanguageService(dummyDoc);
 			const offset = jsDocument.offsetAt(position);
 			const completions = jsLanguageService.getCompletionsAtPosition(jsDocument.uri, offset, { includeExternalModuleExports: false, includeInsertTextCompletions: false });
 			if (!completions) {
@@ -266,10 +293,10 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 			const jsLanguageService = await host.getLanguageService(jsDocument);
 			const definition = jsLanguageService.getDefinitionAtPosition(jsDocument.uri, jsDocument.offsetAt(position));
 			if (definition) {
-				return definition.filter(d => d.fileName === jsDocument.uri).map(d => {
+				return definition.filter(d => d.fileName !== jsDocument.uri).map(d => {
 					return {
-						uri: document.uri,
-						range: convertRange(jsDocument, d.textSpan)
+						uri: d.fileName,
+						range: convertRange(jsLanguageService.getDocument!(d.fileName), d.textSpan)
 					};
 				});
 			}
@@ -280,10 +307,10 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 			const jsLanguageService = await host.getLanguageService(jsDocument);
 			const references = jsLanguageService.getReferencesAtPosition(jsDocument.uri, jsDocument.offsetAt(position));
 			if (references) {
-				return references.filter(d => d.fileName === jsDocument.uri).map(d => {
+				return references.map(d => {
 					return {
-						uri: document.uri,
-						range: convertRange(jsDocument, d.textSpan)
+						uri: d.fileName,
+						range: convertRange(jsLanguageService.getDocument!(d.fileName), d.textSpan)
 					};
 				});
 			}
@@ -300,60 +327,61 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 			return convertSelectionRange(range);
 		},
 		async format(document: TextDocument, range: Range, formatParams: FormattingOptions, settings: Settings = globalSettings): Promise<TextEdit[]> {
-			const jsDocument = documentRegions.get(document).getEmbeddedDocument('javascript', true);
-			const jsLanguageService = await host.getLanguageService(jsDocument);
+			// const jsDocument = documentRegions.get(document).getEmbeddedDocument('javascript', true);
+			// const jsLanguageService = await host.getLanguageService(jsDocument);
 
-			const formatterSettings = settings && settings.javascript && settings.javascript.format;
+			// const formatterSettings = settings && settings.javascript && settings.javascript.format;
 
-			const initialIndentLevel = computeInitialIndent(document, range, formatParams);
-			const formatSettings = convertOptions(formatParams, formatterSettings, initialIndentLevel + 1);
-			const start = jsDocument.offsetAt(range.start);
-			let end = jsDocument.offsetAt(range.end);
-			let lastLineRange = null;
-			if (range.end.line > range.start.line && (range.end.character === 0 || isWhitespaceOnly(jsDocument.getText().substr(end - range.end.character, range.end.character)))) {
-				end -= range.end.character;
-				lastLineRange = Range.create(Position.create(range.end.line, 0), range.end);
-			}
-			const edits = jsLanguageService.getFormattingEditsForRange(jsDocument.uri, start, end, formatSettings);
-			if (edits) {
-				const result = [];
-				for (const edit of edits) {
-					if (edit.span.start >= start && edit.span.start + edit.span.length <= end) {
-						result.push({
-							range: convertRange(jsDocument, edit.span),
-							newText: edit.newText
-						});
-					}
-				}
-				if (lastLineRange) {
-					result.push({
-						range: lastLineRange,
-						newText: generateIndent(initialIndentLevel, formatParams)
-					});
-				}
-				return result;
-			}
+			// const initialIndentLevel = computeInitialIndent(document, range, formatParams);
+			// const formatSettings = convertOptions(formatParams, formatterSettings, initialIndentLevel + 1);
+			// const start = jsDocument.offsetAt(range.start);
+			// let end = jsDocument.offsetAt(range.end);
+			// let lastLineRange = null;
+			// if (range.end.line > range.start.line && (range.end.character === 0 || isWhitespaceOnly(jsDocument.getText().substr(end - range.end.character, range.end.character)))) {
+			// 	end -= range.end.character;
+			// 	lastLineRange = Range.create(Position.create(range.end.line, 0), range.end);
+			// }
+			// const edits = jsLanguageService.getFormattingEditsForRange(jsDocument.uri, start, end, formatSettings);
+			// if (edits) {
+			// 	const result = [];
+			// 	for (const edit of edits) {
+			// 		if (edit.span.start >= start && edit.span.start + edit.span.length <= end) {
+			// 			result.push({
+			// 				range: convertRange(jsDocument, edit.span),
+			// 				newText: edit.newText
+			// 			});
+			// 		}
+			// 	}
+			// 	if (lastLineRange) {
+			// 		result.push({
+			// 			range: lastLineRange,
+			// 			newText: generateIndent(initialIndentLevel, formatParams)
+			// 		});
+			// 	}
+			// 	return result;
+			// }
 			return [];
 		},
 		async getFoldingRanges(document: TextDocument): Promise<FoldingRange[]> {
-			const jsDocument = jsDocuments.get(document);
-			const jsLanguageService = await host.getLanguageService(jsDocument);
-			const spans = jsLanguageService.getOutliningSpans(jsDocument.uri);
-			const ranges: FoldingRange[] = [];
-			for (const span of spans) {
-				const curr = convertRange(jsDocument, span.textSpan);
-				const startLine = curr.start.line;
-				const endLine = curr.end.line;
-				if (startLine < endLine) {
-					const foldingRange: FoldingRange = { startLine, endLine };
-					const match = document.getText(curr).match(/^\s*\/(?:(\/\s*#(?:end)?region\b)|(\*|\/))/);
-					if (match) {
-						foldingRange.kind = match[1] ? FoldingRangeKind.Region : FoldingRangeKind.Comment;
-					}
-					ranges.push(foldingRange);
-				}
-			}
-			return ranges;
+			// const jsDocument = jsDocuments.get(document);
+			// const jsLanguageService = await host.getLanguageService(jsDocument);
+			// const spans = jsLanguageService.getOutliningSpans(jsDocument.uri);
+			// const ranges: FoldingRange[] = [];
+			// for (const span of spans) {
+			// 	const curr = convertRange(jsDocument, span.textSpan);
+			// 	const startLine = curr.start.line;
+			// 	const endLine = curr.end.line;
+			// 	if (startLine < endLine) {
+			// 		const foldingRange: FoldingRange = { startLine, endLine };
+			// 		const match = document.getText(curr).match(/^\s*\/(?:(\/\s*#(?:end)?region\b)|(\*|\/))/);
+			// 		if (match) {
+			// 			foldingRange.kind = match[1] ? FoldingRangeKind.Region : FoldingRangeKind.Comment;
+			// 		}
+			// 		ranges.push(foldingRange);
+			// 	}
+			// }
+			// return ranges;
+			return [];
 		},
 		onDocumentRemoved(document: TextDocument) {
 			jsDocuments.onDocumentRemoved(document);
@@ -365,6 +393,9 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 		},
 		getSemanticTokenLegend(): { types: string[]; modifiers: string[] } {
 			return getSemanticTokenLegend();
+		},
+		onImportedFileChanged(uri: string) {
+			host.scriptFileChanged(uri);
 		},
 		dispose() {
 			host.dispose();
