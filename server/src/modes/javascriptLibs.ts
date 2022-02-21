@@ -12,15 +12,19 @@ import { URI } from 'vscode-uri';
 const contents: { [name: string]: string } = {};
 let TYPESCRIPT_LIB_SOURCE: string;
 const serverFolder = URI.file(basename(__dirname) === 'dist' ? dirname(__dirname) : dirname(dirname(__dirname))).toString();
+console.log(`server load from ${__dirname}`);
+
 if (__dirname.includes('.vscode')) {
 	TYPESCRIPT_LIB_SOURCE = joinPath(serverFolder, '../node_modules/typescript/lib');
 } else {
-	TYPESCRIPT_LIB_SOURCE = joinPath(serverFolder, '../../node_modules/typescript/lib');
+	TYPESCRIPT_LIB_SOURCE = joinPath(serverFolder, '../node_modules/typescript/lib');
 }
+console.log(`typescript lib from ${TYPESCRIPT_LIB_SOURCE}`);
+
 const importedScripts = new Map<string, [string[], string[]]>();
-const scriptDocuments = new Map<string, true>();
 export function getImportedScripts(document: HTMLDocument, workspace: Workspace): string[] {
 	let scripts: [string[], string[]];
+	const workSpaceFolder = workspace.folders[0];
 	if (importedScripts.has(document.uri)) {
 		scripts = importedScripts.get(document.uri)!;
 	} else {
@@ -28,12 +32,14 @@ export function getImportedScripts(document: HTMLDocument, workspace: Workspace)
 		scripts[0].push(document.uri);
 		scripts[1].push(document.uri);
 		importedScripts.set(document.uri, scripts);
+		if (workSpaceFolder) {
+			const imartclienttype = joinPath(workSpaceFolder!.uri, 'node_modules', '@types', 'imartclient.d.ts');
+			scripts[0].push(imartclienttype);
+			scripts[1].push(imartclienttype);
+		}
 	}
-	const workSpaceFolder = workspace.folders[0];
+
 	if (!workSpaceFolder) return scripts[1];
-	const imartclienttype = joinPath(workSpaceFolder!.uri, 'node_modules', '@types', 'imartclient.d.ts');
-	scripts[0].push(imartclienttype);
-	scripts[1].push(imartclienttype);
 	const addedScript = document.importedScripts.filter(e => !scripts[0].includes(e));
 	const removedScript = scripts[0].filter((e, idx) => idx > 1 && (!document.importedScripts.includes(e)));
 	addedScript.forEach(scriptFile => {
@@ -53,13 +59,11 @@ export function getImportedScripts(document: HTMLDocument, workspace: Workspace)
 		} else {
 			return;
 		}
-		scriptDocuments.set(scripts[1][scripts.length-1], true);
 		scripts[0].push(scriptFile);
 	});
 	removedScript.forEach((scriptFile) => {
 		const idx = scripts[0].indexOf(scriptFile);
 		scripts[0].splice(idx, 1);
-		scriptDocuments.delete(scripts[1][idx]);
 		scripts[1].splice(idx, 1);
 	});
 	return scripts[1];
@@ -71,16 +75,12 @@ export function scriptFileChanged(uri: string) {
 }
 
 export function loadLibrary(name: string) {
+	if (name.indexOf('://') < 0) {
+		name = joinPath(TYPESCRIPT_LIB_SOURCE, name);
+	} 
 	let content = contents[name];
-	URI.isUri;
 	if (typeof content !== 'string') {
-		let libPath;
-		const uri = URI.parse(name);
-		if (isAbsolutePath(uri.fsPath)) {
-			libPath = uri.fsPath; //from import
-		} else {
-			libPath = join(TYPESCRIPT_LIB_SOURCE, name); // from source
-		}
+		const libPath = URI.parse(name).fsPath;
 		try {
 			content = readFileSync(libPath).toString();
 		} catch (e: any) {
