@@ -20,5 +20,10 @@
     "@types/mocha": "^8.2.0",
     "@types/node": "16.x"
   },
-  "scripts": {}
+  "scripts": {		
+    "vscode:prepublish": "npm run esbuild-base -- --minify",
+		"esbuild-base": "esbuild ./src/node/htmlServerMain.ts --bundle --main-fields=module,main --outfile=out/node/htmlServerMain.js --format=cjs --platform=node",
+		"esbuild": "npm run esbuild-base -- --sourcemap",
+		"esbuild-watch": "npm run esbuild-base -- --sourcemap --watch"
+}
 }

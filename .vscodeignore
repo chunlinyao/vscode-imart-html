@@ -7,8 +7,10 @@
 contributing.md
 .travis.yml
 client/node_modules/**
-!client/node_modules/vscode-jsonrpc/**
-!client/node_modules/vscode-languageclient/**
-!client/node_modules/vscode-languageserver-protocol/**
-!client/node_modules/vscode-languageserver-types/**
-!client/node_modules/semver/**
+node_modules/**
+server/node_modules/**
+client/src/**
+server/src/**
+server/out/**
+!server/out/node/htmlServerMain.js
+!node_modules/typescript/lib/**
