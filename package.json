@@ -13,6 +13,7 @@
 		"url": "https://github.com/chunlinyao/vscode-imart-html.git"
 	},
 	"publisher": "chunlinyao",
+	"icon": "images/imart-debug-icon.jpg",
 	"categories": [],
 	"keywords": [],
 	"engines": {
