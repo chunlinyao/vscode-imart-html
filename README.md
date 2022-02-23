@@ -27,5 +27,8 @@ This Language Server works for `html` file with below functionalities:
 
 ## ChangeLog
 
+- 1.0.2
+  - 使用SortText>11过滤掉本地文件的函数变量提示，这些默认的HTML扩展会处理。
+  - 去掉DOM对象关联的自动补全项目。
 - 1.0.1
   - 自动补全列表bug修复。修复后会出现重复提示。

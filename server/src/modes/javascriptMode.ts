@@ -26,7 +26,7 @@ interface LanguageService extends ts.LanguageService {
 }
 
 function getLanguageServiceHost(scriptKind: ts.ScriptKind, workspace: Workspace) {
-	const compilerOptions: ts.CompilerOptions = { allowNonTsExtensions: true, allowJs: true, lib: ['lib.es6.d.ts'], target: ts.ScriptTarget.Latest, moduleResolution: ts.ModuleResolutionKind.Classic, experimentalDecorators: false };
+	const compilerOptions: ts.CompilerOptions = { allowNonTsExtensions: true, allowJs: true, lib: ['lib.es2021.d.ts'], target: ts.ScriptTarget.Latest, moduleResolution: ts.ModuleResolutionKind.Classic, experimentalDecorators: false };
 
 	let currentTextDocument = TextDocument.create('init', 'javascript', 1, '') as HTMLDocument;
 	const jsLanguageService = import(/* webpackChunkName: "javascriptLibs" */ './javascriptLibs').then(libs => {
@@ -97,6 +97,7 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind, workspace: Workspace)
 }
 
 
+const SORT_TEXT_LOCAL_PRIORITY = '11';
 export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocumentRegions>, languageId: 'javascript' | 'typescript', workspace: Workspace): LanguageMode {
 	const jsDocuments = getLanguageModelCache<HTMLDocument>(10, 60, document => documentRegions.get(document).getEmbeddedDocument(languageId));
 
@@ -133,7 +134,7 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 			const replaceRange = convertRange(jsDocument, getWordAtText(jsDocument.getText(), offset, JS_WORD_REGEX));
 			return {
 				isIncomplete: false,
-				items: completions.entries.map(entry => {
+				items: completions.entries.filter(e => e.sortText > SORT_TEXT_LOCAL_PRIORITY).map(entry => {
 					return {
 						uri: document.uri,
 						position: position,
