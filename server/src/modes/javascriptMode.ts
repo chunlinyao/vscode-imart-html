@@ -124,9 +124,7 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 		},
 		async doComplete(document: TextDocument, position: Position, _documentContext: DocumentContext): Promise<CompletionList> {
 			const jsDocument = jsDocuments.get(document);
-			const dummyDoc = TextDocument.create(jsDocument.uri, 'javascript', 1, '') as HTMLDocument;
-			dummyDoc.importedScripts = jsDocument.importedScripts;
-			const jsLanguageService = await host.getLanguageService(dummyDoc);
+			const jsLanguageService = await host.getLanguageService(jsDocument);
 			const offset = jsDocument.offsetAt(position);
 			const completions = jsLanguageService.getCompletionsAtPosition(jsDocument.uri, offset, { includeExternalModuleExports: false, includeInsertTextCompletions: false });
 			if (!completions) {

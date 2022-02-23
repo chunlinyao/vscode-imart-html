@@ -24,3 +24,8 @@ This Language Server works for `html` file with below functionalities:
   - Type `<d|` to try HTML completion
   - Type `<script>Imui|</script>` to try JS completion
   - Have `<script>ImuiBigDecimal</script>` to see JS Diagnostics
+
+## ChangeLog
+
+- 1.0.1
+  - 自动补全列表bug修复。修复后会出现重复提示。
