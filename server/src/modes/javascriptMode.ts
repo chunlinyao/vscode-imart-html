@@ -132,9 +132,10 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 				return { isIncomplete: false, items: [] };
 			}
 			const replaceRange = convertRange(jsDocument, getWordAtText(jsDocument.getText(), offset, JS_WORD_REGEX));
+			//console.log(JSON.stringify(completions.entries.filter(e => e.sortText <= '11' && !e.kindModifiers), null, '\t'));
 			return {
 				isIncomplete: false,
-				items: completions.entries.filter(e => e.sortText > SORT_TEXT_LOCAL_PRIORITY).map(entry => {
+				items: completions.entries.filter(e => e.sortText > SORT_TEXT_LOCAL_PRIORITY || e.kindModifiers).map(entry => {
 					return {
 						uri: document.uri,
 						position: position,

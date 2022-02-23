@@ -26,7 +26,8 @@ This Language Server works for `html` file with below functionalities:
   - Have `<script>ImuiBigDecimal</script>` to see JS Diagnostics
 
 ## ChangeLog
-
+- 1.0.3
+  - 自动补全项目过滤修正，部分成员函数原来被过滤了。
 - 1.0.2
   - 使用SortText>11过滤掉本地文件的函数变量提示，这些默认的HTML扩展会处理。
   - 去掉DOM对象关联的自动补全项目。
