@@ -10,6 +10,7 @@ import { TextDocument, Workspace } from './languageModes';
 import { joinPath, isAbsolutePath, extname, dirname as uriDirName } from '../requests';
 import { URI } from 'vscode-uri';
 const contents: { [name: string]: string } = {};
+const versions: { [name: string]: number } = {};
 let TYPESCRIPT_LIB_SOURCE: string;
 const serverFolder = URI.file(basename(__dirname) === 'dist' ? dirname(__dirname) : dirname(dirname(__dirname))).toString();
 console.log(`server load from ${__dirname}`);
@@ -72,6 +73,7 @@ export function getImportedScripts(document: HTMLDocument, workspace: Workspace)
 export function scriptFileChanged(uri: string) {
 	console.log(`Script file changed ${uri}, remove from contents`);
 	delete contents[uri];
+	versions[uri] = (versions[uri] || 1) + 1;
 }
 
 export function loadLibrary(name: string) {
@@ -90,4 +92,11 @@ export function loadLibrary(name: string) {
 		contents[name] = content;
 	}
 	return content;
+}
+export function getDocumentVersion(name: string) {
+	let version = versions[name];
+	if (typeof version !== 'number') {
+		versions[name] = version = 1;
+	}
+	return version;
 }

@@ -43,7 +43,7 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind, workspace: Workspace)
 				if (fileName === currentTextDocument.uri) {
 					return String(currentTextDocument.version);
 				}
-				return '1'; // default lib an jquery.d.ts are static
+				return String(libs.getDocumentVersion(fileName)); // default lib an jquery.d.ts are static
 			},
 			getScriptSnapshot: (fileName: string) => {
 				let text = '';
@@ -68,7 +68,7 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind, workspace: Workspace)
 				return currentTextDocument;
 			} else {
 				const text = libs.loadLibrary(uri);
-				return TextDocument.create(uri, 'javascript', 1, text) as HTMLDocument;
+				return TextDocument.create(uri, 'javascript', libs.getDocumentVersion(uri), text) as HTMLDocument;
 			}
 		};
 		languageService.scriptFileChanged = libs.scriptFileChanged;
