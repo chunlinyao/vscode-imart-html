@@ -1,7 +1,7 @@
 {
   "name": "imart-html-languageserver",
   "description": "Imart HTML language server",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "Microsoft Corporation",
   "license": "MIT",
   "engines": {

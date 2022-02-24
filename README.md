@@ -27,6 +27,9 @@ This Language Server works for `html` file with below functionalities:
 
 ## ChangeLog
 - 1.0.3
+  - 优化自动补全项目过滤。
+  - 修改文件后版本号相应变化，不然TypeScript不解析新文件。
+- 1.0.3
   - 自动补全项目过滤修正，部分成员函数原来被过滤了。
 - 1.0.2
   - 使用SortText>11过滤掉本地文件的函数变量提示，这些默认的HTML扩展会处理。
